@@ -1,46 +1,150 @@
-  function fit(){ const dpr=Math.max(1,Math.min(2,devicePixelRatio||1)); const w=Math.floor(innerWidth*dpr), h=Math.floor(innerHeight*dpr); if(canvas.width!==w||canvas.height!==h){ canvas.width=w; canvas.height=h; } gl.viewport(0,0,w,h); gl.uniform2f(U.u_res,w,h); }
-  addEventListener('resize', fit, {passive:true}); fit();
-  function tickMedia(){ if(!vidA.paused && vidA.currentTime>0 && !vidA.ended) bakeTo(texA,vidA); if(!vidB.paused && vidB.currentTime>0 && !vidB.ended) bakeTo(texB,vidB); }
-
-  let tPrev=performance.now()/1000, rot=0; function draw(){ requestAnimationFrame(draw); fit(); const t=performance.now()/1000; const dt=t - tPrev; tPrev=t; rot += +rotR.value * dt; tickMedia(); gl.uniform1f(U.u_time,t); gl.uniform1f(U.u_k,+kR.value); gl.uniform1f(U.u_zoom,+zoomR.value); gl.uniform2f(U.u_pan,pan.x,pan.y); gl.uniform1f(U.u_rot,rot); gl.uniform1f(U.u_mix,+mixR.value); gl.uniform1i(U.u_hasA, hasA?1:0); gl.uniform1i(U.u_hasB, hasB?1:0); gl.uniform1f(U.u_twistA,+A.twist.value); gl.uniform1f(U.u_twistB,+B.twist.value); gl.uniform1f(U.u_bulgeA,+A.bulge.value); gl.uniform1f(U.u_bulgeB,+B.bulge.value); gl.uniform1f(U.u_rAmpA,+A.rAmp.value); gl.uniform1f(U.u_rAmpB,+B.rAmp.value); gl.uniform1f(U.u_rFreqA,+A.rFreq.value); gl.uniform1f(U.u_rFreqB,+B.rFreq.value); gl.uniform1f(U.u_rSpdA,+A.rSpd.value); gl.uniform1f(U.u_rSpdB,+B.rSpd.value); gl.uniform1f(U.u_swirlA,+A.swirl.value); gl.uniform1f(U.u_swirlB,+B.swirl.value); gl.uniform1f(U.u_hueA,+A.hue.value); gl.uniform1f(U.u_hueB,+B.hue.value); gl.uniform1f(U.u_satA,+A.sat.value); gl.uniform1f(U.u_satB,+B.sat.value); gl.uniform1f(U.u_gainA,+A.gain.value); gl.uniform1f(U.u_gainB,+B.gain.value); gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT); gl.drawArrays(gl.TRIANGLES,0,6); }
-  draw();
-
-  // Drag & drop + paste
-  ;['dragenter','dragover'].forEach(ev=>canvas.addEventListener(ev,(e)=>{ e.preventDefault(); }));
-  canvas.addEventListener('drop',(e)=>{ e.preventDefault(); const f=e.dataTransfer.files?.[0]; if(!f) return; handleFile('A', f); });
-  document.addEventListener('paste', (e)=>{ const item=[...(e.clipboardData?.items||[])].find(i=>i.type.startsWith('image/')); if(!item) return; const f=item.getAsFile(); if(f) handleFile('A', f); });
-
-  // ======= AUDIO (A/B) =======
-  const audA=document.getElementById('audA');
-  const audB=document.getElementById('audB');
-  const loadAudA=document.getElementById('loadAudA');
-  const loadAudB=document.getElementById('loadAudB');
-  const audFileA=document.getElementById('audFileA');
-  const audFileB=document.getElementById('audFileB');
-  const playA=document.getElementById('playA');
-  const playB=document.getElementById('playB');
-  const volA=document.getElementById('volA');
-  const volB=document.getElementById('volB');
-  const master=document.getElementById('master');
-
-  let AC=null, masterGain, gainA, gainB, xfadeA, xfadeB, srcA=null, srcB=null;
-  function ensureAC(){ if(AC) return; AC=new (window.AudioContext||window.webkitAudioContext)(); masterGain=AC.createGain(); masterGain.gain.value=+master.value; gainA=AC.createGain(); gainB=AC.createGain(); xfadeA=AC.createGain(); xfadeB=AC.createGain(); // crossfade law via mixR input
-    // wiring: srcA -> gainA -> xfadeA -> master; srcB -> gainB -> xfadeB -> master
-    xfadeA.connect(masterGain); xfadeB.connect(masterGain); masterGain.connect(AC.destination);
-    volA.addEventListener('input', ()=> gainA.gain.value=+volA.value);
-    volB.addEventListener('input', ()=> gainB.gain.value=+volB.value);
-    master.addEventListener('input', ()=> masterGain.gain.value=+master.value);
-    mixR.addEventListener('input', updateXfade); updateXfade();
+  <!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<title>PsyForge — Tunnel Motion + AI Background</title>
+<style>
+  html,body{
+    margin:0;height:100%;background:#000;overflow:hidden;
+    font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial;
+    color:#fff;
   }
-  function updateXfade(){ const t=+mixR.value; // 0..1
-    const a=Math.cos(t*Math.PI*0.5); const b=Math.sin(t*Math.PI*0.5); if(xfadeA&&xfadeB){ xfadeA.gain.value=a; xfadeB.gain.value=b; } }
-  function connectIfNeeded(which){ ensureAC(); if(which==='A' && !srcA){ srcA=AC.createMediaElementSource(audA); srcA.connect(gainA).connect(xfadeA); } if(which==='B' && !srcB){ srcB=AC.createMediaElementSource(audB); srcB.connect(gainB).connect(xfadeB); } }
+  canvas{display:block;width:100vw;height:100vh;touch-action:none;cursor:grab;}
+  #dock{
+    position:fixed;left:50%;top:10px;transform:translateX(-50%);
+    display:flex;gap:10px;flex-wrap:wrap;z-index:10;
+    background:rgba(12,12,16,.72);padding:10px;border-radius:12px;
+  }
+  #dock input{color:#fff;}
+  button{background:#333;color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;}
+  button:hover{background:#555;}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="dock">
+  <input type="file" id="upload" accept="image/*,video/*">
+  <button id="snap">📸 Snapshot</button>
+  <button id="rec">⏺️ Record</button>
+</div>
+<script>
+const canvas=document.getElementById("c"),gl=canvas.getContext("webgl");
+canvas.width=innerWidth;canvas.height=innerHeight;
 
-  loadAudA.onclick=()=>audFileA.click();
-  loadAudB.onclick=()=>audFileB.click();
-  audFileA.onchange=(e)=>{ const f=e.target.files[0]; if(!f) return; const url=URL.createObjectURL(f); audA.src=url; audA.load(); statusMsg('Audio → Deck A'); };
-  audFileB.onchange=(e)=>{ const f=e.target.files[0]; if(!f) return; const url=URL.createObjectURL(f); audB.src=url; audB.load(); statusMsg('Audio → Deck B'); };
-  playA.onclick=async()=>{ connectIfNeeded('A'); if(audA.paused){ try{ await audA.play(); }catch{} } else { audA.pause(); } if(AC?.state==='suspended') AC.resume(); };
-  playB.onclick=async()=>{ connectIfNeeded('B'); if(audB.paused){ try{ await audB.play(); }catch{} } else { audB.pause(); } if(AC?.state==='suspended') AC.resume(); };
+// --- Vertex Shader
+const vsrc=`attribute vec2 a_pos;varying vec2 v_uv;
+void main(){v_uv=a_pos*0.5+0.5;gl_Position=vec4(a_pos,0,1);}`;
+const vs=gl.createShader(gl.VERTEX_SHADER);
+gl.shaderSource(vs,vsrc);gl.compileShader(vs);
 
-  // ===== Starter visual so it never looks blank =====
+// --- Fragment Shader (Tunnel + AI Gradient BG)
+const fsrc=`
+precision highp float;varying vec2 v_uv;
+uniform float u_time;uniform sampler2D u_tex;uniform bool u_hasTex;
+uniform vec2 u_res;
+mat2 rot(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}
+void main(){
+  vec2 uv=(v_uv-0.5)*2.0;float t=u_time*0.2;
+  float angle=atan(uv.y,uv.x)+t*0.7;
+  float radius=length(uv);
+  float k=6.0; // kaleidoscope wedges
+  angle=mod(angle,6.28318/k)-3.14159/k;
+  uv=vec2(cos(angle),sin(angle))*radius;
+  vec3 col=0.5+0.5*cos(u_time+vec3(uv.x,uv.y,uv.x+uv.y));
+  if(u_hasTex){
+    vec2 texUV=uv*0.5+0.5;
+    col=mix(col,texture2D(u_tex,texUV).rgb,0.9);
+  }
+  // Psychedelic AI-style gradient background
+  col += 0.25*sin(vec3(uv.x*3.0,uv.y*2.5,uv.x+uv.y*2.0)+u_time*1.5);
+  gl_FragColor=vec4(col,1.0);
+}`;
+const fs=gl.createShader(gl.FRAGMENT_SHADER);
+gl.shaderSource(fs,fsrc);gl.compileShader(fs);
+
+// --- Program
+const prog=gl.createProgram();
+gl.attachShader(prog,vs);gl.attachShader(prog,fs);
+gl.linkProgram(prog);gl.useProgram(prog);
+
+// --- Quad
+const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+const a_pos=gl.getAttribLocation(prog,"a_pos");
+gl.enableVertexAttribArray(a_pos);
+gl.vertexAttribPointer(a_pos,2,gl.FLOAT,false,0,0);
+
+// --- Uniforms
+const u_time=gl.getUniformLocation(prog,"u_time");
+const u_res=gl.getUniformLocation(prog,"u_res");
+const u_tex=gl.getUniformLocation(prog,"u_tex");
+const u_hasTex=gl.getUniformLocation(prog,"u_hasTex");
+
+// --- Texture
+let tex=null,hasTex=false;
+function createTex(src){
+  if(!tex)tex=gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D,tex);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,src);
+  hasTex=true;
+}
+
+// --- Upload
+const upload=document.getElementById("upload");
+upload.onchange=e=>{
+  const file=e.target.files[0];
+  if(!file)return;
+  if(file.type.startsWith("image")){
+    const img=new Image();img.onload=()=>createTex(img);
+    img.src=URL.createObjectURL(file);
+  }else if(file.type.startsWith("video")){
+    const vid=document.createElement("video");
+    vid.src=URL.createObjectURL(file);vid.loop=true;vid.muted=true;vid.play();
+    (function f(){if(vid.readyState>=2){createTex(vid);}requestAnimationFrame(f);})();
+  }
+};
+
+// --- Render
+let start=Date.now();
+function draw(){
+  canvas.width=innerWidth;canvas.height=innerHeight;
+  gl.viewport(0,0,canvas.width,canvas.height);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.uniform1f(u_time,(Date.now()-start)/1000.0);
+  gl.uniform2f(u_res,canvas.width,canvas.height);
+  gl.uniform1i(u_tex,0);
+  gl.uniform1i(u_hasTex,hasTex?1:0);
+  if(hasTex){gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,tex);}
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  requestAnimationFrame(draw);
+}
+draw();
+
+// --- Snapshot
+document.getElementById("snap").onclick=()=>{
+  const a=document.createElement("a");
+  a.download="snapshot.png";a.href=canvas.toDataURL();a.click();
+};
+
+// --- Record
+let recBtn=document.getElementById("rec"),mediaRecorder,chunks=[];
+recBtn.onclick=()=>{
+  if(mediaRecorder && mediaRecorder.state==="recording"){mediaRecorder.stop();return;}
+  const stream=canvas.captureStream(30);
+  mediaRecorder=new MediaRecorder(stream,{mimeType:"video/webm"});
+  mediaRecorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data);};
+  mediaRecorder.onstop=()=>{
+    const blob=new Blob(chunks,{type:"video/webm"});chunks=[];
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");a.href=url;a.download="recording.webm";a.click();
+  };
+  mediaRecorder.start();recBtn.textContent="⏹️ Stop";
+  mediaRecorder.onstop=()=>{recBtn.textContent="⏺️ Record";};
+};
+</script>
+</body>
+</html>
