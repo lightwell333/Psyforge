@@ -1,335 +1,11 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>PsyForge — Seamless Kaleidoscope • Dual Deck Media (A/B) + Audio (No Cams)</title>
-<style>
-  :root{ --glass: rgba(16,16,22,.85); --fg:#eaf4ff; --muted:#b7c3d9; --line:#2a3246; --accent:#77f0ff; --danger:#ff6b6b; }
-  html,body{margin:0;height:100%;background:#000;color:var(--fg);font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,Helvetica,Arial}
-  canvas{display:block;width:100vw;height:100vh;touch-action:none;cursor:grab}
-  #dock{position:fixed; left:50%; top:10px; transform:translateX(-50%); z-index:50; background:var(--glass); border:1px solid var(--line); border-radius:16px; padding:0; backdrop-filter:blur(12px); box-shadow:0 10px 30px rgba(0,0,0,.35); max-width:96vw; max-height:82vh; overflow:auto; -webkit-overflow-scrolling:touch;}
-  #dragbar{position:sticky; top:0; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 10px; background:rgba(8,10,16,.9); border-bottom:1px solid var(--line); cursor:grab; user-select:none}
-  #dragbar .grab{display:inline-block; width:44px; height:6px; border-radius:6px; background:#2e3850}
-  .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center; padding:10px}
-  .group{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-  label{font-size:12px;color:var(--muted)}
-  input[type="range"]{width:140px}
-  button,.chip{background:#0f1420;border:1px solid var(--line);color:var(--fg); padding:8px 10px;border-radius:12px;font-weight:600;letter-spacing:.2px}
-  button:hover{border-color:var(--accent)}
-  .chip{font-size:12px}
-  .accent{border-color:var(--accent)}
-  .danger{border-color:var(--danger);color:#ffdada}
-  .muted{color:var(--muted)}
-  .divider{height:1px;background:var(--line);margin:0 10px}
-  details{border:1px solid var(--line);border-radius:12px;margin:10px;padding:8px}
-  summary{cursor:pointer;font-weight:700}
-  details .col{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px}
-  #status{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:60; background:rgba(0,0,0,.55);padding:8px 12px;border-radius:12px;border:1px solid var(--line);font-size:12px}
-  #showTab{position:fixed;top:10px;right:12px;z-index:70;background:rgba(0,0,0,.6);border:1px solid var(--line); border-radius:999px;padding:8px 10px;font-weight:700}
-  @media (max-width:640px){ input[type="range"]{width:120px} }
-</style>
-</head>
-<body>
-  <canvas id="view"></canvas>
-
-  <!-- Deck media elements (hidden) -->
-  <video id="vidA" playsinline muted loop style="display:none"></video>
-  <img id="imgA" alt="" style="display:none" />
-  <video id="vidB" playsinline muted loop style="display:none"></video>
-  <img id="imgB" alt="" style="display:none" />
-
-  <!-- AUDIO elements (hidden) -->
-  <audio id="audA" crossorigin="anonymous" style="display:none"></audio>
-  <audio id="audB" crossorigin="anonymous" style="display:none"></audio>
-
-  <!-- file inputs (hidden) -->
-  <input id="fileA" type="file" accept="image/*,video/*" style="display:none" />
-  <input id="fileB" type="file" accept="image/*,video/*" style="display:none" />
-  <input id="audFileA" type="file" accept="audio/*" style="display:none" />
-  <input id="audFileB" type="file" accept="audio/*" style="display:none" />
-
-  <div id="dock">
-    <div id="dragbar">
-      <span class="grab" title="Drag panel"></span>
-      <div style="display:flex;gap:8px;align-items:center;margin-left:auto">
-        <button id="dockPos">Dock: Top</button>
-        <button id="hide">Hide (H)</button>
-      </div>
-    </div>
-
-    <div class="row" style="justify-content:space-between">
-      <div class="group">
-        <button id="openA">Load Deck A</button>
-        <button id="openB">Load Deck B</button>
-        <!-- cams removed by request -->
-        <button id="snapshot" title="Save PNG"> Snapshot</button>
-        <button id="rec" class="accent" title="Record WebM">● Record</button>
-        <a id="dl" class="chip" href="#" download style="display:none">Download</a>
-      </div>
-      <div class="group">
-        <a href="https://cash.app/$lightwell333" target="_blank" rel="noopener" class="chip accent">☘ Donate</a>
-      </div>
-    </div>
-
-    <div class="divider"></div>
-
-    <!-- master controls -->
-    <div class="row">
-      <div class="group">
-        <label>Wedges <span id="kVal">8</span></label>
-        <input id="k" type="range" min="3" max="48" value="8" step="1" />
-        <label>Zoom <span id="zoomVal">1.00</span></label>
-        <input id="zoom" type="range" min="0.2" max="5" step="0.01" value="1" />
-        <label>Rotate Speed <span id="rotVal">0.00</span></label>
-        <input id="rot" type="range" min="-2" max="2" step="0.001" value="0" />
-        <label>Crossfader A⇄B <span id="mixVal">0.00</span></label>
-        <input id="mix" type="range" min="0" max="1" step="0.001" value="0" />
-      </div>
-    </div>
-
-    <!-- Audio Decks (A/B) -->
-    <details open>
-      <summary>Audio — Decks A & B</summary>
-      <div class="col">
-        <div class="group">
-          <button id="loadAudA">Load Audio A</button>
-          <button id="playA">Play/Pause A</button>
-          <label>Vol A</label><input id="volA" type="range" min="0" max="1" step="0.001" value="1" />
-        </div>
-        <div class="group">
-          <button id="loadAudB">Load Audio B</button>
-          <button id="playB">Play/Pause B</button>
-          <label>Vol B</label><input id="volB" type="range" min="0" max="1" step="0.001" value="1" />
-        </div>
-        <div class="group">
-          <label>Master</label><input id="master" type="range" min="0" max="1" step="0.001" value="1" />
-        </div>
-        <div class="muted">Audio crossfade is linked to the visual Crossfader A⇄B slider above.</div>
-      </div>
-    </details>
-
-    <!-- Deck A sculpt -->
-    <details open>
-      <summary>Deck A — Visual Sculpt</summary>
-      <div class="col">
-        <label>Twist A <span id="twistAVal">0.00</span></label><input id="twistA" type="range" min="-5" max="5" step="0.01" value="0" />
-        <label>Bulge A <span id="bulgeAVal">0.00</span></label><input id="bulgeA" type="range" min="-1" max="1" step="0.01" value="0" />
-        <label>Ripple Amp A <span id="rAmpAVal">0.00</span></label><input id="rAmpA" type="range" min="0" max="0.5" step="0.001" value="0" />
-        <label>Ripple Freq A <span id="rFreqAVal">8.0</span></label><input id="rFreqA" type="range" min="1" max="30" step="0.1" value="8" />
-        <label>Ripple Speed A <span id="rSpdAVal">0.8</span></label><input id="rSpdA" type="range" min="-5" max="5" step="0.01" value="0.8" />
-        <label>Swirl A <span id="swirlAVal">0.00</span></label><input id="swirlA" type="range" min="-3" max="3" step="0.01" value="0" />
-        <label>Hue A <span id="hueAVal">0.00</span></label><input id="hueA" type="range" min="-1" max="1" step="0.001" value="0" />
-        <label>Sat A <span id="satAVal">1.00</span></label><input id="satA" type="range" min="0" max="2" step="0.01" value="1" />
-        <label>Gain A <span id="gainAVal">1.00</span></label><input id="gainA" type="range" min="0" max="3" step="0.01" value="1" />
-      </div>
-    </details>
-
-    <!-- Deck B sculpt -->
-    <details open>
-      <summary>Deck B — Visual Sculpt</summary>
-      <div class="col">
-        <label>Twist B <span id="twistBVal">0.00</span></label><input id="twistB" type="range" min="-5" max="5" step="0.01" value="0" />
-        <label>Bulge B <span id="bulgeBVal">0.00</span></label><input id="bulgeB" type="range" min="-1" max="1" step="0.01" value="0" />
-        <label>Ripple Amp B <span id="rAmpBVal">0.00</span></label><input id="rAmpB" type="range" min="0" max="0.5" step="0.001" value="0" />
-        <label>Ripple Freq B <span id="rFreqBVal">8.0</span></label><input id="rFreqB" type="range" min="1" max="30" step="0.1" value="8" />
-        <label>Ripple Speed B <span id="rSpdBVal">0.8</span></label><input id="rSpdB" type="range" min="-5" max="5" step="0.01" value="0.8" />
-        <label>Swirl B <span id="swirlBVal">0.00</span></label><input id="swirlB" type="range" min="-3" max="3" step="0.01" value="0" />
-        <label>Hue B <span id="hueBVal">0.00</span></label><input id="hueB" type="range" min="-1" max="1" step="0.001" value="0" />
-        <label>Sat B <span id="satBVal">1.00</span></label><input id="satB" type="range" min="0" max="2" step="0.01" value="1" />
-        <label>Gain B <span id="gainBVal">1.00</span></label><input id="gainB" type="range" min="0" max="3" step="0.01" value="1" />
-      </div>
-    </details>
-  </div>
-
-  <button id="showTab" style="display:none">Show Panel</button>
-  <div id="status" style="display:none"></div>
-
-<script>
-(function(){
-  const canvas = document.getElementById('view');
-  const gl = canvas.getContext('webgl', {antialias:false, preserveDrawingBuffer:true, alpha:false})
-        || canvas.getContext('experimental-webgl', {antialias:false, preserveDrawingBuffer:true, alpha:false});
-  if(!gl){ alert('WebGL not available'); return; }
-
-  // ===== Docking / UI =====
-  const dock = document.getElementById('dock');
-  const dragbar = document.getElementById('dragbar');
-  const dockPosBtn = document.getElementById('dockPos');
-  let dragging=false, offsetX=0, offsetY=0;
-  dragbar.addEventListener('pointerdown', (e)=>{ dragging=true; dragbar.style.cursor='grabbing'; const r=dock.getBoundingClientRect(); dock.style.left=r.left+'px'; dock.style.top=r.top+'px'; dock.style.transform='none'; offsetX=e.clientX-r.left; offsetY=e.clientY-r.top; dragbar.setPointerCapture(e.pointerId); });
-  dragbar.addEventListener('pointermove', (e)=>{ if(!dragging) return; let x=e.clientX-offsetX, y=e.clientY-offsetY; x=Math.max(10,Math.min(innerWidth-dock.offsetWidth-10,x)); y=Math.max(10,Math.min(innerHeight-60,y)); dock.style.left=x+'px'; dock.style.top=y+'px'; });
-  dragbar.addEventListener('pointerup', ()=>{ dragging=false; dragbar.style.cursor='grab'; });
-  dragbar.addEventListener('pointercancel', ()=>{ dragging=false; dragbar.style.cursor='grab'; });
-  const dockPositions=['Top','Bottom','Left','Right']; let posIdx=0; function applyDock(){ if(dockPositions[posIdx]==='Top'){ dock.style.left='50%'; dock.style.top='10px'; dock.style.right=''; dock.style.bottom=''; dock.style.transform='translateX(-50%)'; dock.style.width='auto'; dock.style.maxHeight='82vh'; } else if(dockPositions[posIdx]==='Bottom'){ dock.style.left='50%'; dock.style.bottom='10px'; dock.style.right=''; dock.style.top=''; dock.style.transform='translateX(-50%)'; dock.style.width='auto'; dock.style.maxHeight='60vh'; } else if(dockPositions[posIdx]==='Left'){ dock.style.left='10px'; dock.style.top='50%'; dock.style.right=''; dock.style.bottom=''; dock.style.transform='translateY(-50%)'; dock.style.width='360px'; dock.style.maxHeight='92vh'; } else { dock.style.right='10px'; dock.style.top='50%'; dock.style.left=''; dock.style.bottom=''; dock.style.transform='translateY(-50%)'; dock.style.width='360px'; dock.style.maxHeight='92vh'; } dockPosBtn.textContent='Dock: '+dockPositions[posIdx]; }
-  dockPosBtn.onclick=()=>{ posIdx=(posIdx+1)%dockPositions.length; applyDock(); };
-  applyDock();
-  const showTab=document.getElementById('showTab');
-  const hideBtn=document.getElementById('hide');
-  function statusMsg(m,ms=1400){ const status=document.getElementById('status'); status.textContent=m; status.style.display='block'; clearTimeout(statusMsg._t); statusMsg._t=setTimeout(()=>status.style.display='none',ms); }
-  function toggleUI(force){ const visible=dock.style.display!=="none"; const want=(force===undefined)?!visible:force; dock.style.display=want?'block':'none'; showTab.style.display=want?'none':'block'; if(!want) statusMsg('Panel hidden — double-tap canvas or press H'); }
-  hideBtn.onclick=()=>toggleUI(); showTab.onclick=()=>toggleUI(true); let lastTap=0; canvas.addEventListener('pointerdown',()=>{ const now=Date.now(); if(now-lastTap<280){ toggleUI(false); } lastTap=now; }); document.addEventListener('keydown',(e)=>{ if(e.key==='h'||e.key==='H') toggleUI(); });
-
-  // ===== Controls =====
-  function q(s){ return document.querySelector(s); }
-  const kR=q('#k'), zoomR=q('#zoom'), rotR=q('#rot'), mixR=q('#mix');
-  const kVal=q('#kVal'), zoomVal=q('#zoomVal'), rotVal=q('#rotVal'), mixVal=q('#mixVal');
-  function sync(){ kVal.textContent=kR.value; zoomVal.textContent=(+zoomR.value).toFixed(2); rotVal.textContent=(+rotR.value).toFixed(2); mixVal.textContent=(+mixR.value).toFixed(2); }
-  [kR,zoomR,rotR,mixR].forEach(x=>x.addEventListener('input',sync)); sync();
-
-  // ===== Elements & inputs =====
-  const fileA=document.getElementById('fileA'), fileB=document.getElementById('fileB');
-  const imgA=document.getElementById('imgA'), imgB=document.getElementById('imgB');
-  const vidA=document.getElementById('vidA'), vidB=document.getElementById('vidB');
-  const openA=document.getElementById('openA'), openB=document.getElementById('openB');
-  const snapBtn=document.getElementById('snapshot'), recBtn=document.getElementById('rec'); const dlLink=document.getElementById('dl');
-
-  // ===== WebGL program =====
-  const vsrc=`attribute vec2 a_pos; varying vec2 v_uv; void main(){ v_uv=a_pos*0.5+0.5; gl_Position=vec4(a_pos,0.0,1.0);} `;
-  const fsrc=`precision mediump float; varying vec2 v_uv; uniform vec2 u_res; uniform float u_time; uniform float u_k; uniform float u_zoom; uniform vec2 u_pan; uniform float u_rot; uniform float u_mix; uniform sampler2D u_texA; uniform sampler2D u_texB; uniform bool u_hasA; uniform bool u_hasB; uniform float u_twistA,u_twistB,u_bulgeA,u_bulgeB,u_rAmpA,u_rAmpB,u_rFreqA,u_rFreqB,u_rSpdA,u_rSpdB,u_swirlA,u_swirlB,u_hueA,u_hueB,u_satA,u_satB,u_gainA,u_gainB;
-    mat2 rot2(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);} float mirror(float x){float m=mod(x,2.0);return (m>1.0)?2.0-m:m;}
-    vec3 hsv2rgb(vec3 c){ vec3 p=abs(fract(c.xxx+vec3(0.,1./3.,2./3.))*6.0-3.0); return c.z*mix(vec3(1.0),clamp(p-1.0,0.0,1.0),c.y); }
-    vec3 rgb2hsv(vec3 c){ vec4 K=vec4(0.,-1./3.,2./3.,-1.); vec4 p=mix(vec4(c.bg,K.wz),vec4(c.gb,K.xy),step(c.b,c.g)); vec4 q=mix(vec4(p.xyw,c.r),vec4(c.r,p.yzx),step(p.x,c.r)); float d=q.x-min(q.w,q.y); float e=1.0e-10; return vec3(abs(q.z+(q.w-q.y)/(6.0*d+e)), d/(q.x+e), q.x);}
-    vec2 kalei(vec2 uv, float twist, float bulge, float rAmp, float rFreq, float rSpd, float swirl){
-      vec2 p = (uv-0.5); p.x *= u_res.x/u_res.y; p *= rot2(u_rot);
-      float r = length(p); float a = atan(p.y,p.x);
-      r += sin(r*rFreq - u_time*rSpd)*rAmp;
-      a += twist*r + swirl*r*r;
-      float seg = 6.2831853/max(u_k,1.0); a = mod(a, seg); if(a>seg*0.5) a = seg - a;
-      vec2 q = vec2(cos(a), sin(a)) * pow(max(r,1e-4), 1.0 + bulge);
-      q = q * u_zoom + u_pan;
-      vec2 suv = q*0.5 + 0.5; return vec2(mirror(suv.x), mirror(suv.y));
-    }
-    vec3 post(vec3 c, float hue, float sat, float gain){ vec3 h=rgb2hsv(c); h.x=fract(h.x+hue); h.y=clamp(h.y*sat,0.0,1.0); h.z=clamp(h.z*gain,0.0,2.0); return hsv2rgb(h); }
-    void main(){
-      vec2 uvA = kalei(v_uv, u_twistA,u_bulgeA,u_rAmpA,u_rFreqA,u_rSpdA,u_swirlA);
-      vec2 uvB = kalei(v_uv, u_twistB,u_bulgeB,u_rAmpB,u_rFreqB,u_rSpdB,u_swirlB);
-      vec3 A = u_hasA?texture2D(u_texA,uvA).rgb:vec3(0.0);
-      vec3 B = u_hasB?texture2D(u_texB,uvB).rgb:vec3(0.0);
-      A=post(A,u_hueA,u_satA,u_gainA); B=post(B,u_hueB,u_satB,u_gainB);
-      gl_FragColor=vec4(mix(A,B,u_mix),1.0);
-    }`;
-  function sh(t,s){const x=gl.createShader(t); gl.shaderSource(x,s); gl.compileShader(x); if(!gl.getShaderParameter(x,gl.COMPILE_STATUS)){ throw new Error(gl.getShaderInfoLog(x)); } return x; }
-  const prog=gl.createProgram(); gl.attachShader(prog,sh(gl.VERTEX_SHADER,vsrc)); gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,fsrc)); gl.linkProgram(prog); if(!gl.getProgramParameter(prog,gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog)); gl.useProgram(prog);
-  const quad=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,quad); gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW); const a_pos=gl.getAttribLocation(prog,'a_pos'); gl.enableVertexAttribArray(a_pos); gl.vertexAttribPointer(a_pos,2,gl.FLOAT,false,0,0);
-
-  // uniforms
-  const U={}; ['u_res','u_time','u_k','u_zoom','u_pan','u_rot','u_mix','u_texA','u_texB','u_hasA','u_hasB','u_twistA','u_twistB','u_bulgeA','u_bulgeB','u_rAmpA','u_rAmpB','u_rFreqA','u_rFreqB','u_rSpdA','u_rSpdB','u_swirlA','u_swirlB','u_hueA','u_hueB','u_satA','u_satB','u_gainA','u_gainB'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
-  function prepTex(){ const t=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,t);
-    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
-    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,1,1,0,gl.RGB,gl.UNSIGNED_BYTE,new Uint8Array([0,0,0]));
-    return t;
-  }
-  const texA=prepTex(), texB=prepTex(); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,texA); gl.uniform1i(U.u_texA,0); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D,texB); gl.uniform1i(U.u_texB,1);
-
-  // bake uploads to 1024 POT
-  const baker=document.createElement('canvas'); baker.width=baker.height=1024; const bctx=baker.getContext('2d',{alpha:false});
-  function bakeTo(tex, source){
-    const sw=source.videoWidth||source.naturalWidth||source.width; if(!sw) return false;
-    const sh=source.videoHeight||source.naturalHeight||source.height;
-    const d=baker.width; let sx=0,sy=0,cw=sw,ch=sh;
-    if(sw/sh>1){ cw=sh; sx=(sw-cw)/2; } else { ch=sw; sy=(sh-ch)/2; }
-    bctx.clearRect(0,0,d,d); bctx.drawImage(source,sx,sy,cw,ch,0,0,d,d);
-    gl.bindTexture(gl.TEXTURE_2D,tex); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,baker);
-    return true;
-  }
-
-  // deck state
-  let hasA=false, hasB=false;
-  const deckA={type:'none', url:null}, deckB={type:'none', url:null};
-  function revoke(u){ try{ u && URL.revokeObjectURL(u); }catch{} }
-  function stopVideo(vid){ try{ vid.pause(); vid.removeAttribute('src'); vid.load(); }catch{} }
-
-  function handleFile(which, file){
-    const isA=(which==='A');
-    const deck=isA?deckA:deckB;
-    const img=isA?imgA:imgB;
-    const vid=isA?vidA:vidB;
-    const tex=isA?texA:texB;
-    const input=isA?fileA:fileB;
-    if(deck.type==='video') stopVideo(vid);
-    revoke(deck.url);
-    const url=URL.createObjectURL(file);
-    deck.url=url;
-    if(file.type.startsWith('image/')){
-      deck.type='image';
-      img.onload=()=>{ bakeTo(tex,img); (isA?hasA:hasB)=true; img.onload=null; };
-      img.src=url;
-    } else if(file.type.startsWith('video/')){
-      deck.type='video';
-      vid.onloadeddata=()=>{ try{ vid.play(); }catch{} (isA?hasA:hasB)=true; };
-      vid.src=url;
-    } else {
-      console.warn('Unsupported type', file.type);
-    }
-    input.value='';
-  }
-
-  // wire buttons
-  const openA=document.getElementById('openA'), openB=document.getElementById('openB');
-  openA.onclick=()=>fileA.click(); openB.onclick=()=>fileB.click();
-  fileA.onchange=(e)=>{ const f=e.target.files?.[0]; if(f) handleFile('A',f); };
-  fileB.onchange=(e)=>{ const f=e.target.files?.[0]; if(f) handleFile('B',f); };
-
-  // ===== Sculpt controls =====
-  const A={ twist:q('#twistA'), bulge:q('#bulgeA'), rAmp:q('#rAmpA'), rFreq:q('#rFreqA'), rSpd:q('#rSpdA'), swirl:q('#swirlA'), hue:q('#hueA'), sat:q('#satA'), gain:q('#gainA') };
-  const B={ twist:q('#twistB'), bulge:q('#bulgeB'), rAmp:q('#rAmpB'), rFreq:q('#rFreqB'), rSpd:q('#rSpdB'), swirl:q('#swirlB'), hue:q('#hueB'), sat:q('#satB'), gain:q('#gainB') };
-
-  // ===== Gestures: pan / pinch-zoom / rotate =====
-  let pan={x:0,y:0}; let last=new Map(); let baseZoom=1, baseRot=0;
-  canvas.addEventListener('touchmove', (e)=>{ e.preventDefault(); }, {passive:false});
-  canvas.addEventListener('pointerdown',(e)=>{ canvas.setPointerCapture(e.pointerId); last.set(e.pointerId,{x:e.clientX,y:e.clientY}); if(last.size===2){ const a=[...last.values()][0], b=[...last.values()][1]; baseZoom=+zoomR.value; baseRot=+rotR.value; } });
-  canvas.addEventListener('pointerup',(e)=>{ last.delete(e.pointerId); canvas._g=null; });
-  canvas.addEventListener('pointercancel',(e)=>{ last.delete(e.pointerId); canvas._g=null; });
-  canvas.addEventListener('pointermove',(e)=>{ if(!last.has(e.pointerId)) return; const prev=last.get(e.pointerId); const cur={x:e.clientX,y:e.clientY}; last.set(e.pointerId,cur); if(last.size===1){ pan.x += (cur.x-prev.x)/canvas.height; pan.y -= (cur.y-prev.y)/canvas.height; } else if(last.size===2){ const pts=[...last.values()]; const d0=Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y); if(!canvas._g){ canvas._g={d:d0, ang:Math.atan2(pts[1].y-pts[0].y, pts[1].x-pts[0].x)}; } const d1=Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y); zoomR.value = String(Math.min(5, Math.max(0.2, baseZoom * (d0? d0/d1 : 1)))); const a1=Math.atan2(pts[1].y-pts[0].y, pts[1].x-pts[0].x); rotR.value = String(baseRot + (a1-canvas._g.ang)); sync(); } });
-
-  // ===== Hide/show =====
-  const showTab=document.getElementById('showTab');
-  function statusMsg(m,ms=1400){ const status=document.getElementById('status'); status.textContent=m; status.style.display='block'; clearTimeout(statusMsg._t); statusMsg._t=setTimeout(()=>status.style.display='none',ms); }
-  function toggleUI(force){ const visible=dock.style.display!=="none"; const want=(force===undefined)?!visible:force; dock.style.display=want?'block':'none'; showTab.style.display=want?'none':'block'; if(!want) statusMsg('Panel hidden — double-tap canvas or press H'); }
-  const hideBtn=document.getElementById('hide');
-  hideBtn.onclick=()=>toggleUI(); showTab.onclick=()=>toggleUI(true); let lastTap2=0; canvas.addEventListener('pointerdown',()=>{ const now=Date.now(); if(now-lastTap2<280){ toggleUI(false); } lastTap2=now; }); document.addEventListener('keydown',(e)=>{ if(e.key==='h'||e.key==='H') toggleUI(); });
-
-  // ===== Snapshot & record =====
-  snapBtn.onclick=()=>{ const a=document.createElement('a'); a.href=canvas.toDataURL('image/png'); a.download='psyforge.png'; a.click(); statusMsg('Snapshot saved'); };
-  let recorder=null, chunks=[];
-  recBtn.onclick=()=>{ if(recorder && recorder.state==='recording'){ recorder.stop(); recBtn.textContent='● Record'; recBtn.classList.remove('danger'); return; } try{ const stream=canvas.captureStream(30); const mime=MediaRecorder.isTypeSupported('video/webm;codecs=vp9')?'video/webm;codecs=vp9':'video/webm'; recorder=new MediaRecorder(stream,{mimeType:mime}); chunks=[]; recorder.ondataavailable=(e)=>{ if(e.data&&e.data.size) chunks.push(e.data); }; recorder.onstop=()=>{ const blob=new Blob(chunks,{type:'video/webm'}); const url=URL.createObjectURL(blob); dlLink.href=url; dlLink.download='psyforge.webm'; dlLink.style.display='inline-block'; statusMsg('Recording ready — click Download'); }; recorder.start(); recBtn.textContent='■ Stop'; recBtn.classList.add('danger'); dlLink.style.display='none'; statusMsg('Recording…'); } catch(e){ console.error(e); statusMsg('Recording not supported'); } };
-
-  // ===== Uniforms & draw =====
-  const Ulist=['u_res','u_time','u_k','u_zoom','u_pan','u_rot','u_mix','u_texA','u_texB','u_hasA','u_hasB','u_twistA','u_twistB','u_bulgeA','u_bulgeB','u_rAmpA','u_rAmpB','u_rFreqA','u_rFreqB','u_rSpdA','u_rSpdB','u_swirlA','u_swirlB','u_hueA','u_hueB','u_satA','u_satB','u_gainA','u_gainB'];
-  Ulist.forEach(n=>{ if(U[n]==null) console.warn('Missing uniform', n); });
   function fit(){ const dpr=Math.max(1,Math.min(2,devicePixelRatio||1)); const w=Math.floor(innerWidth*dpr), h=Math.floor(innerHeight*dpr); if(canvas.width!==w||canvas.height!==h){ canvas.width=w; canvas.height=h; } gl.viewport(0,0,w,h); gl.uniform2f(U.u_res,w,h); }
   addEventListener('resize', fit, {passive:true}); fit();
   function tickMedia(){ if(!vidA.paused && vidA.currentTime>0 && !vidA.ended) bakeTo(texA,vidA); if(!vidB.paused && vidB.currentTime>0 && !vidB.ended) bakeTo(texB,vidB); }
 
-  // starter visual so it never looks blank
-  (function starter(){ const s=document.createElement('canvas'); s.width=s.height=1024; const c=s.getContext('2d'); const g=c.createRadialGradient(512,512,50,512,512,520); g.addColorStop(0,'#4ff'); g.addColorStop(1,'#f0f'); c.fillStyle='#000'; c.fillRect(0,0,1024,1024); c.fillStyle=g; c.beginPath(); c.arc(512,512,420,0,Math.PI*2); c.fill(); bakeTo(texA,s); hasA=true; })();
-
-  // draw loop
-  let tPrev=performance.now()/1000, rot=0;
-  function draw(){
-    requestAnimationFrame(draw); fit();
-    const t=performance.now()/1000; const dt=t - tPrev; tPrev=t; rot += +rotR.value * dt;
-    tickMedia();
-    gl.uniform1f(U.u_time,t); gl.uniform1f(U.u_k,+kR.value); gl.uniform1f(U.u_zoom,+zoomR.value); gl.uniform2f(U.u_pan,pan.x,pan.y); gl.uniform1f(U.u_rot,rot); gl.uniform1f(U.u_mix,+mixR.value);
-    gl.uniform1i(U.u_hasA, hasA?1:0); gl.uniform1i(U.u_hasB, hasB?1:0);
-    gl.uniform1f(U.u_twistA,+A.twist.value); gl.uniform1f(U.u_twistB,+B.twist.value);
-    gl.uniform1f(U.u_bulgeA,+A.bulge.value); gl.uniform1f(U.u_bulgeB,+B.bulge.value);
-    gl.uniform1f(U.u_rAmpA,+A.rAmp.value); gl.uniform1f(U.u_rAmpB,+B.rAmp.value);
-    gl.uniform1f(U.u_rFreqA,+A.rFreq.value); gl.uniform1f(U.u_rFreqB,+B.rFreq.value);
-    gl.uniform1f(U.u_rSpdA,+A.rSpd.value); gl.uniform1f(U.u_rSpdB,+B.rSpd.value);
-    gl.uniform1f(U.u_swirlA,+A.swirl.value); gl.uniform1f(U.u_swirlB,+B.swirl.value);
-    gl.uniform1f(U.u_hueA,+A.hue.value); gl.uniform1f(U.u_hueB,+B.hue.value);
-    gl.uniform1f(U.u_satA,+A.sat.value); gl.uniform1f(U.u_satB,+B.sat.value);
-    gl.uniform1f(U.u_gainA,+A.gain.value); gl.uniform1f(U.u_gainB,+B.gain.value);
-    gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT); gl.drawArrays(gl.TRIANGLES,0,6);
-  }
+  let tPrev=performance.now()/1000, rot=0; function draw(){ requestAnimationFrame(draw); fit(); const t=performance.now()/1000; const dt=t - tPrev; tPrev=t; rot += +rotR.value * dt; tickMedia(); gl.uniform1f(U.u_time,t); gl.uniform1f(U.u_k,+kR.value); gl.uniform1f(U.u_zoom,+zoomR.value); gl.uniform2f(U.u_pan,pan.x,pan.y); gl.uniform1f(U.u_rot,rot); gl.uniform1f(U.u_mix,+mixR.value); gl.uniform1i(U.u_hasA, hasA?1:0); gl.uniform1i(U.u_hasB, hasB?1:0); gl.uniform1f(U.u_twistA,+A.twist.value); gl.uniform1f(U.u_twistB,+B.twist.value); gl.uniform1f(U.u_bulgeA,+A.bulge.value); gl.uniform1f(U.u_bulgeB,+B.bulge.value); gl.uniform1f(U.u_rAmpA,+A.rAmp.value); gl.uniform1f(U.u_rAmpB,+B.rAmp.value); gl.uniform1f(U.u_rFreqA,+A.rFreq.value); gl.uniform1f(U.u_rFreqB,+B.rFreq.value); gl.uniform1f(U.u_rSpdA,+A.rSpd.value); gl.uniform1f(U.u_rSpdB,+B.rSpd.value); gl.uniform1f(U.u_swirlA,+A.swirl.value); gl.uniform1f(U.u_swirlB,+B.swirl.value); gl.uniform1f(U.u_hueA,+A.hue.value); gl.uniform1f(U.u_hueB,+B.hue.value); gl.uniform1f(U.u_satA,+A.sat.value); gl.uniform1f(U.u_satB,+B.sat.value); gl.uniform1f(U.u_gainA,+A.gain.value); gl.uniform1f(U.u_gainB,+B.gain.value); gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT); gl.drawArrays(gl.TRIANGLES,0,6); }
   draw();
 
-  // Drag & drop + paste → Deck A
+  // Drag & drop + paste
   ;['dragenter','dragover'].forEach(ev=>canvas.addEventListener(ev,(e)=>{ e.preventDefault(); }));
   canvas.addEventListener('drop',(e)=>{ e.preventDefault(); const f=e.dataTransfer.files?.[0]; if(!f) return; handleFile('A', f); });
   document.addEventListener('paste', (e)=>{ const item=[...(e.clipboardData?.items||[])].find(i=>i.type.startsWith('image/')); if(!item) return; const f=item.getAsFile(); if(f) handleFile('A', f); });
@@ -346,17 +22,25 @@
   const volA=document.getElementById('volA');
   const volB=document.getElementById('volB');
   const master=document.getElementById('master');
+
   let AC=null, masterGain, gainA, gainB, xfadeA, xfadeB, srcA=null, srcB=null;
-  function ensureAC(){ if(AC) return; AC=new (window.AudioContext||window.webkitAudioContext)(); masterGain=AC.createGain(); masterGain.gain.value=+master.value; gainA=AC.createGain(); gainB=AC.createGain(); xfadeA=AC.createGain(); xfadeB=AC.createGain(); xfadeA.connect(masterGain); xfadeB.connect(masterGain); masterGain.connect(AC.destination); volA.addEventListener('input', ()=> gainA.gain.value=+volA.value); volB.addEventListener('input', ()=> gainB.gain.value=+volB.value); master.addEventListener('input', ()=> masterGain.gain.value=+master.value); mixR.addEventListener('input', updateXfade); updateXfade(); }
-  function updateXfade(){ const t=+mixR.value; const a=Math.cos(t*Math.PI*0.5); const b=Math.sin(t*Math.PI*0.5); if(xfadeA&&xfadeB){ xfadeA.gain.value=a; xfadeB.gain.value=b; } }
+  function ensureAC(){ if(AC) return; AC=new (window.AudioContext||window.webkitAudioContext)(); masterGain=AC.createGain(); masterGain.gain.value=+master.value; gainA=AC.createGain(); gainB=AC.createGain(); xfadeA=AC.createGain(); xfadeB=AC.createGain(); // crossfade law via mixR input
+    // wiring: srcA -> gainA -> xfadeA -> master; srcB -> gainB -> xfadeB -> master
+    xfadeA.connect(masterGain); xfadeB.connect(masterGain); masterGain.connect(AC.destination);
+    volA.addEventListener('input', ()=> gainA.gain.value=+volA.value);
+    volB.addEventListener('input', ()=> gainB.gain.value=+volB.value);
+    master.addEventListener('input', ()=> masterGain.gain.value=+master.value);
+    mixR.addEventListener('input', updateXfade); updateXfade();
+  }
+  function updateXfade(){ const t=+mixR.value; // 0..1
+    const a=Math.cos(t*Math.PI*0.5); const b=Math.sin(t*Math.PI*0.5); if(xfadeA&&xfadeB){ xfadeA.gain.value=a; xfadeB.gain.value=b; } }
   function connectIfNeeded(which){ ensureAC(); if(which==='A' && !srcA){ srcA=AC.createMediaElementSource(audA); srcA.connect(gainA).connect(xfadeA); } if(which==='B' && !srcB){ srcB=AC.createMediaElementSource(audB); srcB.connect(gainB).connect(xfadeB); } }
+
   loadAudA.onclick=()=>audFileA.click();
   loadAudB.onclick=()=>audFileB.click();
   audFileA.onchange=(e)=>{ const f=e.target.files[0]; if(!f) return; const url=URL.createObjectURL(f); audA.src=url; audA.load(); statusMsg('Audio → Deck A'); };
   audFileB.onchange=(e)=>{ const f=e.target.files[0]; if(!f) return; const url=URL.createObjectURL(f); audB.src=url; audB.load(); statusMsg('Audio → Deck B'); };
   playA.onclick=async()=>{ connectIfNeeded('A'); if(audA.paused){ try{ await audA.play(); }catch{} } else { audA.pause(); } if(AC?.state==='suspended') AC.resume(); };
   playB.onclick=async()=>{ connectIfNeeded('B'); if(audB.paused){ try{ await audB.play(); }catch{} } else { audB.pause(); } if(AC?.state==='suspended') AC.resume(); };
-})();
-</script>
-</body>
-</html>
+
+  // ===== Starter visual so it never looks blank =====
