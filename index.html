@@ -5,20 +5,12 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
 <title>PsyForge — Tunnel Motion + AI Background</title>
 <style>
-  html,body{
-    margin:0;height:100%;background:#000;overflow:hidden;
-    font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial;
-    color:#fff;
-  }
-  canvas{display:block;width:100vw;height:100vh;touch-action:none;cursor:grab;}
-  #dock{
-    position:fixed;left:50%;top:10px;transform:translateX(-50%);
-    display:flex;gap:10px;flex-wrap:wrap;z-index:10;
-    background:rgba(12,12,16,.72);padding:10px;border-radius:12px;
-  }
-  #dock input{color:#fff;}
-  button{background:#333;color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;}
-  button:hover{background:#555;}
+  html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial;color:#fff}
+  canvas{display:block;width:100vw;height:100vh;touch-action:none;cursor:grab}
+  #dock{position:fixed;left:50%;top:10px;transform:translateX(-50%);display:flex;gap:10px;flex-wrap:wrap;z-index:10;background:rgba(12,12,16,.72);padding:10px;border-radius:12px}
+  #dock input{color:#fff}
+  button{background:#333;color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer}
+  button:hover{background:#555}
 </style>
 </head>
 <body>
@@ -29,122 +21,138 @@
   <button id="rec">⏺️ Record</button>
 </div>
 <script>
-const canvas=document.getElementById("c"),gl=canvas.getContext("webgl");
-canvas.width=innerWidth;canvas.height=innerHeight;
+(function(){
+  const canvas=document.getElementById("c");
+  const gl=canvas.getContext("webgl",{preserveDrawingBuffer:true});
+  if(!gl){ alert("WebGL not available"); return; }
+  function resize(){ const dpr=window.devicePixelRatio||1; canvas.width=innerWidth*dpr; canvas.height=innerHeight*dpr; canvas.style.width="100vw"; canvas.style.height="100vh"; gl.viewport(0,0,canvas.width,canvas.height); }
+  addEventListener("resize",resize,{passive:true}); resize();
 
-// --- Vertex Shader
-const vsrc=`attribute vec2 a_pos;varying vec2 v_uv;
-void main(){v_uv=a_pos*0.5+0.5;gl_Position=vec4(a_pos,0,1);}`;
-const vs=gl.createShader(gl.VERTEX_SHADER);
-gl.shaderSource(vs,vsrc);gl.compileShader(vs);
+  const vsrc=`attribute vec2 a_pos;varying vec2 v_uv;
+  void main(){v_uv=a_pos*0.5+0.5;gl_Position=vec4(a_pos,0.,1.);}`;
 
-// --- Fragment Shader (Tunnel + AI Gradient BG)
-const fsrc=`
-precision highp float;varying vec2 v_uv;
-uniform float u_time;uniform sampler2D u_tex;uniform bool u_hasTex;
-uniform vec2 u_res;
-mat2 rot(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}
-void main(){
-  vec2 uv=(v_uv-0.5)*2.0;float t=u_time*0.2;
-  float angle=atan(uv.y,uv.x)+t*0.7;
-  float radius=length(uv);
-  float k=6.0; // kaleidoscope wedges
-  angle=mod(angle,6.28318/k)-3.14159/k;
-  uv=vec2(cos(angle),sin(angle))*radius;
-  vec3 col=0.5+0.5*cos(u_time+vec3(uv.x,uv.y,uv.x+uv.y));
-  if(u_hasTex){
-    vec2 texUV=uv*0.5+0.5;
-    col=mix(col,texture2D(u_tex,texUV).rgb,0.9);
+  const fsrc=`precision highp float;varying vec2 v_uv;
+  uniform float u_time;uniform sampler2D u_tex;uniform bool u_hasTex;uniform vec2 u_res;
+  void main(){
+    vec2 uv=(v_uv-0.5)*2.0;
+    float t=u_time*0.2;
+    float angle=atan(uv.y,uv.x)+t*0.7;
+    float radius=length(uv);
+    float k=8.0;
+    angle=mod(angle,6.2831853/k)-3.14159265/k;
+    uv=vec2(cos(angle),sin(angle))*radius;
+    vec3 col=0.5+0.5*cos(u_time+vec3(uv.x,uv.y,uv.x+uv.y));
+    if(u_hasTex){
+      vec2 texUV=uv*0.5+0.5;
+      col=mix(col,texture2D(u_tex,texUV).rgb,0.9);
+    }
+    col+=0.25*sin(vec3(uv.x*3.0,uv.y*2.5,uv.x+uv.y*2.0)+u_time*1.5);
+    gl_FragColor=vec4(col,1.0);
+  }`;
+
+  function compile(type,src){
+    const s=gl.createShader(type); gl.shaderSource(s,src); gl.compileShader(s);
+    if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){ console.error(gl.getShaderInfoLog(s)); alert("Shader error"); }
+    return s;
   }
-  // Psychedelic AI-style gradient background
-  col += 0.25*sin(vec3(uv.x*3.0,uv.y*2.5,uv.x+uv.y*2.0)+u_time*1.5);
-  gl_FragColor=vec4(col,1.0);
-}`;
-const fs=gl.createShader(gl.FRAGMENT_SHADER);
-gl.shaderSource(fs,fsrc);gl.compileShader(fs);
+  const prog=gl.createProgram();
+  gl.attachShader(prog,compile(gl.VERTEX_SHADER,vsrc));
+  gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,fsrc));
+  gl.linkProgram(prog);
+  if(!gl.getProgramParameter(prog,gl.LINK_STATUS)){ console.error(gl.getProgramInfoLog(prog)); alert("Link error"); }
+  gl.useProgram(prog);
 
-// --- Program
-const prog=gl.createProgram();
-gl.attachShader(prog,vs);gl.attachShader(prog,fs);
-gl.linkProgram(prog);gl.useProgram(prog);
+  const buf=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+  gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+  const a_pos=gl.getAttribLocation(prog,"a_pos"); gl.enableVertexAttribArray(a_pos);
+  gl.vertexAttribPointer(a_pos,2,gl.FLOAT,false,0,0);
 
-// --- Quad
-const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);
-gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
-const a_pos=gl.getAttribLocation(prog,"a_pos");
-gl.enableVertexAttribArray(a_pos);
-gl.vertexAttribPointer(a_pos,2,gl.FLOAT,false,0,0);
+  const u_time=gl.getUniformLocation(prog,"u_time");
+  const u_res=gl.getUniformLocation(prog,"u_res");
+  const u_tex=gl.getUniformLocation(prog,"u_tex");
+  const u_hasTex=gl.getUniformLocation(prog,"u_hasTex");
 
-// --- Uniforms
-const u_time=gl.getUniformLocation(prog,"u_time");
-const u_res=gl.getUniformLocation(prog,"u_res");
-const u_tex=gl.getUniformLocation(prog,"u_tex");
-const u_hasTex=gl.getUniformLocation(prog,"u_hasTex");
+  let tex=null, hasTex=false, video=null;
 
-// --- Texture
-let tex=null,hasTex=false;
-function createTex(src){
-  if(!tex)tex=gl.createTexture();
-  gl.bindTexture(gl.TEXTURE_2D,tex);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT);
-  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,src);
-  hasTex=true;
-}
-
-// --- Upload
-const upload=document.getElementById("upload");
-upload.onchange=e=>{
-  const file=e.target.files[0];
-  if(!file)return;
-  if(file.type.startsWith("image")){
-    const img=new Image();img.onload=()=>createTex(img);
-    img.src=URL.createObjectURL(file);
-  }else if(file.type.startsWith("video")){
-    const vid=document.createElement("video");
-    vid.src=URL.createObjectURL(file);vid.loop=true;vid.muted=true;vid.play();
-    (function f(){if(vid.readyState>=2){createTex(vid);}requestAnimationFrame(f);})();
+  function ensureTex(){
+    if(!tex){ tex=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,tex);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT);
+    } else { gl.bindTexture(gl.TEXTURE_2D,tex); }
   }
-};
 
-// --- Render
-let start=Date.now();
-function draw(){
-  canvas.width=innerWidth;canvas.height=innerHeight;
-  gl.viewport(0,0,canvas.width,canvas.height);
-  gl.clear(gl.COLOR_BUFFER_BIT);
-  gl.uniform1f(u_time,(Date.now()-start)/1000.0);
-  gl.uniform2f(u_res,canvas.width,canvas.height);
-  gl.uniform1i(u_tex,0);
-  gl.uniform1i(u_hasTex,hasTex?1:0);
-  if(hasTex){gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,tex);}
-  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
-  requestAnimationFrame(draw);
-}
-draw();
+  function uploadImage(img){
+    ensureTex();
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,img);
+    hasTex=true;
+  }
 
-// --- Snapshot
-document.getElementById("snap").onclick=()=>{
-  const a=document.createElement("a");
-  a.download="snapshot.png";a.href=canvas.toDataURL();a.click();
-};
+  function uploadVideoFrame(){
+    if(video && video.readyState>=2){
+      ensureTex();
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);
+      gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,video);
+      hasTex=true;
+    }
+  }
 
-// --- Record
-let recBtn=document.getElementById("rec"),mediaRecorder,chunks=[];
-recBtn.onclick=()=>{
-  if(mediaRecorder && mediaRecorder.state==="recording"){mediaRecorder.stop();return;}
-  const stream=canvas.captureStream(30);
-  mediaRecorder=new MediaRecorder(stream,{mimeType:"video/webm"});
-  mediaRecorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data);};
-  mediaRecorder.onstop=()=>{
-    const blob=new Blob(chunks,{type:"video/webm"});chunks=[];
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement("a");a.href=url;a.download="recording.webm";a.click();
+  const input=document.getElementById("upload");
+  input.onchange=e=>{
+    const f=e.target.files&&e.target.files[0]; if(!f) return;
+    if(f.type.startsWith("image")){
+      const img=new Image(); img.onload=()=>uploadImage(img);
+      img.src=URL.createObjectURL(f);
+    } else if(f.type.startsWith("video")){
+      video=document.createElement("video");
+      video.src=URL.createObjectURL(f);
+      video.loop=true; video.muted=true; video.playsInline=true;
+      video.play().catch(()=>{ /* user gesture may be needed */ });
+    }
   };
-  mediaRecorder.start();recBtn.textContent="⏹️ Stop";
-  mediaRecorder.onstop=()=>{recBtn.textContent="⏺️ Record";};
-};
+
+  let start=performance.now();
+  function frame(now){
+    resize();
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    if(video) uploadVideoFrame();
+    gl.uniform1f(u_time,(now-start)/1000);
+    gl.uniform2f(u_res,canvas.width,canvas.height);
+    gl.uniform1i(u_tex,0);
+    gl.uniform1i(u_hasTex,hasTex?1:0);
+    if(hasTex){ gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,tex); }
+    gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // Snapshot
+  document.getElementById("snap").onclick=()=>{
+    const a=document.createElement("a");
+    a.download="snapshot.png";
+    a.href=canvas.toDataURL("image/png");
+    a.click();
+  };
+
+  // Record
+  const recBtn=document.getElementById("rec");
+  let rec=null, chunks=[];
+  recBtn.onclick=()=>{
+    if(rec && rec.state==="recording"){ rec.stop(); return; }
+    const stream=canvas.captureStream(30);
+    rec=new MediaRecorder(stream,{mimeType:"video/webm"});
+    rec.ondataavailable=e=>{ if(e.data.size) chunks.push(e.data); };
+    rec.onstop=()=>{
+      const blob=new Blob(chunks,{type:"video/webm"}); chunks=[];
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement("a"); a.href=url; a.download="recording.webm"; a.click();
+      recBtn.textContent="⏺️ Record";
+    };
+    rec.start();
+    recBtn.textContent="⏹️ Stop";
+  };
+})();
 </script>
 </body>
 </html>
