@@ -1,204 +1,169 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Canvas Recorder — Minimal Test</title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+<title>PsyForge — Works Everywhere</title>
 <style>
-  html,body{margin:0;height:100%;background:#0b0f16;color:#eaf4ff;font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,Helvetica,Arial}
-  #app{display:flex;flex-direction:column;align-items:center;gap:12px;padding:18px}
-  canvas{width:92vw;height:60vh;max-width:1200px;display:block;border-radius:12px;background:#000;border:1px solid #223}
-  .row{display:flex;gap:10px;flex-wrap:wrap}
-  button,a{background:#131b2b;color:#eaf4ff;border:1px solid #2a3246;padding:8px 12px;border-radius:10px;cursor:pointer;text-decoration:none}
-  button:hover,a:hover{border-color:#77f0ff}
-  #status{color:#9db2d6;font-size:12px}
+  html,body{margin:0;height:100%;background:#000;color:#eaeef7;font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial;overscroll-behavior:none}
+  #view{position:fixed;inset:0;display:block;width:100vw;height:100vh;background:#000;touch-action:none;cursor:grab}
+  #ui{position:fixed;left:50%;top:10px;transform:translateX(-50%);z-index:10;display:flex;flex-wrap:wrap;gap:8px;align-items:center;
+      background:rgba(18,20,28,.85);backdrop-filter:blur(8px);border:1px solid #2a3246;border-radius:12px;padding:10px 12px}
+  label{display:flex;align-items:center;gap:6px;font-size:13px;color:#c9d3e6}
+  input[type=range]{width:140px}
+  .btn{background:#1c2436;border:1px solid #36425c;color:#fff;border-radius:8px;padding:6px 10px;cursor:pointer}
+  .hidden{display:none}
 </style>
 </head>
 <body>
-<div id="app">
-  <h1 style="margin:8px 0 0">Canvas Recorder — Minimal Test</h1>
-  <div id="status">Ready.</div>
-  <canvas id="c"></canvas>
-  <div class="row">
-    <button id="recBtn">● Record</button>
-    <a id="saveBtn" download="recording.webm" style="display:none">⬇︎ Save Video</a>
-    <a id="openBtn" target="_blank" style="display:none">↗ Open in Tab</a>
-    <button id="snapBtn">Snapshot PNG</button>
-  </div>
+<canvas id="view"></canvas>
+
+<input id="fileA" class="hidden" type="file" accept="image/*,video/*"/>
+<input id="fileB" class="hidden" type="file" accept="image/*,video/*"/>
+
+<div id="ui">
+  <button id="loadA" class="btn">Load A</button>
+  <button id="loadB" class="btn">Load B</button>
+  <label>Wedges <input id="wedges" type="range" min="3" max="48" step="1" value="8"></label>
+  <label>Zoom <input id="zoom" type="range" min="0.3" max="5" step="0.01" value="1"></label>
+  <label>Rotate <input id="rot" type="range" min="-180" max="180" step="0.5" value="0"></label>
+  <label>Mix <input id="mix" type="range" min="0" max="1" step="0.001" value="0"></label>
 </div>
+
 <script>
+/* ========= State ========= */
+const S = { wedges:8, zoom:1, rotDeg:0, mix:0, pan:{x:0,y:0} };
+
+/* ========= GL ========= */
+const canvas = document.getElementById('view');
+let gl = canvas.getContext('webgl',{preserveDrawingBuffer:true, antialias:true});
+if(!gl){ alert('WebGL not available'); }
+
+function fit(){
+  const dpr = Math.min(devicePixelRatio||1,2);
+  const w = Math.floor(innerWidth*dpr), h = Math.floor(innerHeight*dpr);
+  if(canvas.width!==w||canvas.height!==h){
+    canvas.width=w; canvas.height=h;
+    canvas.style.width=innerWidth+'px'; canvas.style.height=innerHeight+'px';
+    gl.viewport(0,0,w,h);
+  }
+}
+addEventListener('resize', fit, {passive:true}); fit();
+
+const VS=`attribute vec2 a_pos; varying vec2 v_uv; void main(){ v_uv=a_pos*0.5+0.5; gl_Position=vec4(a_pos,0.,1.); }`;
+const FS=`
+precision highp float; varying vec2 v_uv;
+uniform sampler2D u_texA; uniform bool u_hasA;
+uniform sampler2D u_texB; uniform bool u_hasB;
+uniform vec2 u_res; uniform float u_time;
+uniform float u_wedges, u_zoom, u_rotDeg, u_mix; uniform vec2 u_pan;
+mat2 r2(float a){ float c=cos(a), s=sin(a); return mat2(c,-s,s,c); }
+void main(){
+  vec2 p=v_uv*2.0-1.0; p.x*=u_res.x/u_res.y;
+  p+=u_pan;                     // pan
+  p*=1.0/max(u_zoom,0.001);     // zoom
+  p=r2(radians(u_rotDeg))*p;    // rotate
+  float m=6.2831853/max(u_wedges,3.0);
+  float A=atan(p.y,p.x), r=length(p);
+  A=mod(A,m); A=abs(A-m*0.5);
+  vec2 q=vec2(cos(A),sin(A))*r;
+  q.x/=u_res.x/u_res.y; vec2 uv=q*0.5+0.5;
+  vec3 a=u_hasA?texture2D(u_texA,uv).rgb:vec3(0.10+0.10*sin(vec3(uv,uv.x+uv.y)*4.0+u_time));
+  vec3 b=u_hasB?texture2D(u_texB,uv).rgb:vec3(0.10+0.10*sin(vec3(uv.yx,uv.x-uv.y)*4.0+u_time*1.3));
+  gl_FragColor=vec4(mix(a,b,clamp(u_mix,0.0,1.0)),1.0);
+}`;
+function sh(t,s){const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);
+  if(!gl.getShaderParameter(o,gl.COMPILE_STATUS)) throw gl.getShaderInfoLog(o); return o;}
+const prog=gl.createProgram();
+gl.attachShader(prog,sh(gl.VERTEX_SHADER,VS)); gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,FS));
+gl.linkProgram(prog); if(!gl.getProgramParameter(prog,gl.LINK_STATUS)) throw gl.getProgramInfoLog(prog);
+gl.useProgram(prog);
+const buf=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+const a_pos=gl.getAttribLocation(prog,'a_pos'); gl.enableVertexAttribArray(a_pos); gl.vertexAttribPointer(a_pos,2,gl.FLOAT,false,0,0);
+const U={texA:gl.getUniformLocation(prog,'u_texA'),texB:gl.getUniformLocation(prog,'u_texB'),
+  hasA:gl.getUniformLocation(prog,'u_hasA'),hasB:gl.getUniformLocation(prog,'u_hasB'),
+  res:gl.getUniformLocation(prog,'u_res'),time:gl.getUniformLocation(prog,'u_time'),
+  wedges:gl.getUniformLocation(prog,'u_wedges'),zoom:gl.getUniformLocation(prog,'u_zoom'),
+  rotDeg:gl.getUniformLocation(prog,'u_rotDeg'),pan:gl.getUniformLocation(prog,'u_pan'),
+  mix:gl.getUniformLocation(prog,'u_mix')};
+gl.uniform1i(U.texA,0); gl.uniform1i(U.texB,1);
+function makeTex(){const t=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,t);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,1,1,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array([40,40,40,255])); return t;}
+const texA=makeTex(), texB=makeTex(); let hasA=false, hasB=false;
+function upload(tex,src){gl.bindTexture(gl.TEXTURE_2D,tex); gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,src);}
+
+/* ========= Media ========= */
+const fileA=document.getElementById('fileA'), fileB=document.getElementById('fileB');
+document.getElementById('loadA').onclick=()=>fileA.click();
+document.getElementById('loadB').onclick=()=>fileB.click();
+const vidA=document.createElement('video'); vidA.muted=true; vidA.loop=true; vidA.playsInline=true;
+const vidB=document.createElement('video'); vidB.muted=true; vidB.loop=true; vidB.playsInline=true;
+fileA.onchange=e=>{const f=e.target.files[0]; if(!f)return;
+  if(f.type.startsWith('video/')){ vidA.src=URL.createObjectURL(f); vidA.oncanplay=()=>{hasA=true; vidA.play().catch(()=>{});}; }
+  else{ const img=new Image(); img.onload=()=>{upload(texA,img); hasA=true;}; img.src=URL.createObjectURL(f); } };
+fileB.onchange=e=>{const f=e.target.files[0]; if(!f)return;
+  if(f.type.startsWith('video/')){ vidB.src=URL.createObjectURL(f); vidB.oncanplay=()=>{hasB=true; vidB.play().catch(()=>{});}; }
+  else{ const img=new Image(); img.onload=()=>{upload(texB,img); hasB=true;}; img.src=URL.createObjectURL(f); } };
+
+/* ========= Sliders ========= */
+const wedgesR=document.getElementById('wedges'), zoomR=document.getElementById('zoom'), rotR=document.getElementById('rot'), mixR=document.getElementById('mix');
+function sync(){ S.wedges=+wedgesR.value; S.zoom=+zoomR.value; S.rotDeg=+rotR.value; S.mix=+mixR.value; }
+[wedgesR,zoomR,rotR,mixR].forEach(r=>r.addEventListener('input',sync)); sync();
+
+/* ========= Touch (pan / pinch / rotate / double-tap reset) ========= */
 (function(){
-  const canvas = document.getElementById('c');
-  const status = (m)=>document.getElementById('status').textContent=m;
-  const recBtn = document.getElementById('recBtn');
-  const saveBtn = document.getElementById('saveBtn');
-  const openBtn = document.getElementById('openBtn');
-  const snapBtn = document.getElementById('snapBtn');
-
-  // Size canvas to device pixels
-  const dpr = Math.min(2, window.devicePixelRatio||1);
-  function resize(){ const w=Math.floor(innerWidth*0.92*dpr), h=Math.floor(innerHeight*0.60*dpr); if(canvas.width!==w||canvas.height!==h){ canvas.width=w; canvas.height=h; } }
-  addEventListener('resize', resize, {passive:true}); resize();
-
-  // SUPER SIMPLE ANIMATION (so you can see recording works)
-  const ctx = canvas.getContext('2d');
-  let t0 = performance.now();
-  let x=40, y=40, vx=140, vy=110, r=28;
-  function draw(){
-    const t = performance.now(); const dt = (t - t0)/1000; t0 = t;
-    x += vx*dt; y += vy*dt;
-    if(x<r||x>canvas.width-r) vx*=-1, x=Math.max(r, Math.min(canvas.width-r,x));
-    if(y<r||y>canvas.height-r) vy*=-1, y=Math.max(r, Math.min(canvas.height-r,y));
-    ctx.clearRect(0,0,canvas.width,canvas.height);
-    // background pulse
-    const pulse = (Math.sin(t*0.002)*0.5+0.5)*20|0; ctx.fillStyle = `rgb(${pulse},${pulse},${pulse})`; ctx.fillRect(0,0,canvas.width,canvas.height);
-    // ball
-    ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.closePath(); ctx.fillStyle='#77f0ff'; ctx.fill();
-    requestAnimationFrame(draw);
-  }
-  draw();
-
-  // SNAPSHOT
-  snapBtn.onclick = ()=>{ const a=document.createElement('a'); a.download='frame.png'; a.href=canvas.toDataURL('image/png'); a.click(); };
-
-  // RECORDING
-  let recorder=null, chunks=[], blobUrl=null;
-  function makeRecorder(){
-    if(!canvas.captureStream){ status('This browser does not support canvas.captureStream. Try Chrome/Edge/Firefox desktop.'); return null; }
-    const stream = canvas.captureStream(60);
-    const types = [ 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm' ];
-    let r=null; for(const t of types){ try{ r = new MediaRecorder(stream, { mimeType:t }); break; } catch(_){} }
-    if(!r){ status('MediaRecorder not supported with WebM here (Safari/iOS usually).'); return null; }
-    return r;
-  }
-
-  recBtn.onclick = () => {
-    if(!recorder){
-      recorder = makeRecorder(); if(!recorder) return;
-      chunks = []; if(blobUrl){ URL.revokeObjectURL(blobUrl); blobUrl=null; saveBtn.style.display=openBtn.style.display='none'; }
-      recorder.ondataavailable = (e)=>{ if(e.data && e.data.size>0) chunks.push(e.data); };
-      recorder.onstop = ()=>{
-        const blob = new Blob(chunks, { type:'video/webm' });
-        blobUrl = URL.createObjectURL(blob);
-        saveBtn.href = blobUrl; openBtn.href = blobUrl;
-        saveBtn.style.display = openBtn.style.display = 'inline-block';
-        status('Recording complete. Use ⬇︎ Save Video to download.');
-      };
-      recorder.start();
-      recBtn.textContent = '■ Stop';
-      status('Recording…');
-    } else {
-      recorder.stop(); recorder=null;
-      recBtn.textContent = '● Record';
-    }
-  };
-
-  // NICE-TO-HAVE: warn Safari users
-  const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-  if(isSafari){ status('Safari may not support MediaRecorder WebM. Use Chrome/Edge/Firefox to record.'); }
+  const el=canvas; const pointers=new Map();
+  let lastCenter=null,lastDist=null,lastAngle=null,lastTap=0;
+  let start={zoom:S.zoom, rot:S.rotDeg, panX:S.pan.x, panY:S.pan.y, mix:S.mix};
+  function center(){const pts=[...pointers.values()]; const c=pts.reduce((a,p)=>({x:a.x+p.x,y:a.y+p.y}),{x:0,y:0}); c.x/=pts.length; c.y/=pts.length; return c;}
+  function distAng(){const pts=[...pointers.values()]; if(pts.length<2) return {dist:0,angle:0};
+    const dx=pts[1].x-pts[0].x, dy=pts[1].y-pts[0].y; return {dist:Math.hypot(dx,dy), angle:Math.atan2(dy,dx)}; }
+  function reflect(){ zoomR.value=S.zoom; zoomR.dispatchEvent(new Event('input')); rotR.value=S.rotDeg; rotR.dispatchEvent(new Event('input'));
+                      mixR.value=S.mix; mixR.dispatchEvent(new Event('input')); }
+  function onDown(x,y,id){pointers.set(id,{x,y}); el.setPointerCapture?.(id); lastCenter={x,y};
+    start={zoom:S.zoom,rot:S.rotDeg,panX:S.pan.x,panY:S.pan.y,mix:S.mix};
+    const now=performance.now(); if(now-lastTap<300){ S.zoom=1; S.rotDeg=0; S.pan.x=0; S.pan.y=0; reflect(); } lastTap=now;
+    if(pointers.size===2){ const d=distAng(); lastDist=d.dist; lastAngle=d.angle; } }
+  function onMove(x,y,id){ if(!pointers.has(id)) return; pointers.set(id,{x,y});
+    if(pointers.size===1){ const c=center(); const dx=(c.x-lastCenter.x)/innerWidth, dy=(c.y-lastCenter.y)/innerHeight;
+      S.pan.x = start.panX + dx*2.0; S.pan.y = start.panY - dy*2.0; S.mix = Math.max(0,Math.min(1,start.mix + dx*0.6)); reflect(); }
+    else if(pointers.size===2){ const c=center(), d=distAng();
+      if(lastDist){ const s=d.dist/lastDist; S.zoom=Math.max(0.3,Math.min(5,start.zoom*s)); }
+      if(lastAngle!=null){ const dA=d.angle-lastAngle; S.rotDeg=start.rot + dA*180.0/3.14159265; }
+      reflect(); lastDist=d.dist; lastAngle=d.angle; } }
+  function onUp(id){ pointers.delete(id); start={zoom:S.zoom,rot:S.rotDeg,panX:S.pan.x,panY:S.pan.y,mix:S.mix};
+    if(pointers.size<2){ lastDist=null; lastAngle=null; } }
+  el.addEventListener('pointerdown', e=>{e.preventDefault(); onDown(e.clientX,e.clientY,e.pointerId);},{passive:false});
+  el.addEventListener('pointermove', e=>{e.preventDefault(); onMove(e.clientX,e.clientY,e.pointerId);},{passive:false});
+  el.addEventListener('pointerup', e=>onUp(e.pointerId));
+  el.addEventListener('pointercancel', e=>onUp(e.pointerId));
+  el.addEventListener('wheel', e=>{e.preventDefault(); const s=Math.exp(-e.deltaY*0.001); S.zoom=Math.max(0.3,Math.min(5,S.zoom*s)); reflect(); }, {passive:false});
 })();
-</script>
-</body>
-</html>
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Canvas Recorder — Minimal Test</title>
-<style>
-  html,body{margin:0;height:100%;background:#0b0f16;color:#eaf4ff;font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,Helvetica,Arial}
-  #app{display:flex;flex-direction:column;align-items:center;gap:12px;padding:18px}
-  canvas{width:92vw;height:60vh;max-width:1200px;display:block;border-radius:12px;background:#000;border:1px solid #223}
-  .row{display:flex;gap:10px;flex-wrap:wrap}
-  button,a{background:#131b2b;color:#eaf4ff;border:1px solid #2a3246;padding:8px 12px;border-radius:10px;cursor:pointer;text-decoration:none}
-  button:hover,a:hover{border-color:#77f0ff}
-  #status{color:#9db2d6;font-size:12px}
-</style>
-</head>
-<body>
-<div id="app">
-  <h1 style="margin:8px 0 0">Canvas Recorder — Minimal Test</h1>
-  <div id="status">Ready.</div>
-  <canvas id="c"></canvas>
-  <div class="row">
-    <button id="recBtn">● Record</button>
-    <a id="saveBtn" download="recording.webm" style="display:none">⬇︎ Save Video</a>
-    <a id="openBtn" target="_blank" style="display:none">↗ Open in Tab</a>
-    <button id="snapBtn">Snapshot PNG</button>
-  </div>
-</div>
-<script>
-(function(){
-  const canvas = document.getElementById('c');
-  const status = (m)=>document.getElementById('status').textContent=m;
-  const recBtn = document.getElementById('recBtn');
-  const saveBtn = document.getElementById('saveBtn');
-  const openBtn = document.getElementById('openBtn');
-  const snapBtn = document.getElementById('snapBtn');
 
-  // Size canvas to device pixels
-  const dpr = Math.min(2, window.devicePixelRatio||1);
-  function resize(){ const w=Math.floor(innerWidth*0.92*dpr), h=Math.floor(innerHeight*0.60*dpr); if(canvas.width!==w||canvas.height!==h){ canvas.width=w; canvas.height=h; } }
-  addEventListener('resize', resize, {passive:true}); resize();
-
-  // SUPER SIMPLE ANIMATION (so you can see recording works)
-  const ctx = canvas.getContext('2d');
-  let t0 = performance.now();
-  let x=40, y=40, vx=140, vy=110, r=28;
-  function draw(){
-    const t = performance.now(); const dt = (t - t0)/1000; t0 = t;
-    x += vx*dt; y += vy*dt;
-    if(x<r||x>canvas.width-r) vx*=-1, x=Math.max(r, Math.min(canvas.width-r,x));
-    if(y<r||y>canvas.height-r) vy*=-1, y=Math.max(r, Math.min(canvas.height-r,y));
-    ctx.clearRect(0,0,canvas.width,canvas.height);
-    // background pulse
-    const pulse = (Math.sin(t*0.002)*0.5+0.5)*20|0; ctx.fillStyle = `rgb(${pulse},${pulse},${pulse})`; ctx.fillRect(0,0,canvas.width,canvas.height);
-    // ball
-    ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.closePath(); ctx.fillStyle='#77f0ff'; ctx.fill();
-    requestAnimationFrame(draw);
-  }
-  draw();
-
-  // SNAPSHOT
-  snapBtn.onclick = ()=>{ const a=document.createElement('a'); a.download='frame.png'; a.href=canvas.toDataURL('image/png'); a.click(); };
-
-  // RECORDING
-  let recorder=null, chunks=[], blobUrl=null;
-  function makeRecorder(){
-    if(!canvas.captureStream){ status('This browser does not support canvas.captureStream. Try Chrome/Edge/Firefox desktop.'); return null; }
-    const stream = canvas.captureStream(60);
-    const types = [ 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm' ];
-    let r=null; for(const t of types){ try{ r = new MediaRecorder(stream, { mimeType:t }); break; } catch(_){} }
-    if(!r){ status('MediaRecorder not supported with WebM here (Safari/iOS usually).'); return null; }
-    return r;
-  }
-
-  recBtn.onclick = () => {
-    if(!recorder){
-      recorder = makeRecorder(); if(!recorder) return;
-      chunks = []; if(blobUrl){ URL.revokeObjectURL(blobUrl); blobUrl=null; saveBtn.style.display=openBtn.style.display='none'; }
-      recorder.ondataavailable = (e)=>{ if(e.data && e.data.size>0) chunks.push(e.data); };
-      recorder.onstop = ()=>{
-        const blob = new Blob(chunks, { type:'video/webm' });
-        blobUrl = URL.createObjectURL(blob);
-        saveBtn.href = blobUrl; openBtn.href = blobUrl;
-        saveBtn.style.display = openBtn.style.display = 'inline-block';
-        status('Recording complete. Use ⬇︎ Save Video to download.');
-      };
-      recorder.start();
-      recBtn.textContent = '■ Stop';
-      status('Recording…');
-    } else {
-      recorder.stop(); recorder=null;
-      recBtn.textContent = '● Record';
-    }
-  };
-
-  // NICE-TO-HAVE: warn Safari users
-  const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-  if(isSafari){ status('Safari may not support MediaRecorder WebM. Use Chrome/Edge/Firefox to record.'); }
-})();
+/* ========= Render ========= */
+function render(t){
+  fit();
+  if(vidA.readyState>=2 && !vidA.paused && !vidA.ended){ gl.activeTexture(gl.TEXTURE0); upload(texA,vidA); hasA=true; }
+  if(vidB.readyState>=2 && !vidB.paused && !vidB.ended){ gl.activeTexture(gl.TEXTURE1); upload(texB,vidB); hasB=true; }
+  gl.useProgram(prog);
+  gl.uniform2f(U.res, canvas.width, canvas.height);
+  gl.uniform1f(U.time, (t||0)/1000);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texA);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texB);
+  gl.uniform1i(U.hasA, hasA?1:0); gl.uniform1i(U.hasB, hasB?1:0);
+  gl.uniform1f(U.wedges, S.wedges); gl.uniform1f(U.zoom, S.zoom);
+  gl.uniform1f(U.rotDeg, S.rotDeg); gl.uniform2f(U.pan, S.pan.x, S.pan.y);
+  gl.uniform1f(U.mix, S.mix);
+  gl.clear(gl.COLOR_BUFFER_BIT); gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  requestAnimationFrame(render);
+}
+requestAnimationFrame(render);
 </script>
 </body>
 </html>
